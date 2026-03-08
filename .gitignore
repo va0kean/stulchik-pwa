@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Элементы операционной системы
+Thumbs.db
+Desktop.ini
+
+# База данных (если решите не использовать LFS, уберите решетку ниже)
+# archive.db
