@@ -87,41 +87,45 @@
         const statusEl = document.getElementById('db-status');
         try {
             // Инициализируем sql.js (загружаем WebAssembly)
+            statusEl.innerText = "Инициализация движка базы данных...";
             SQLGlobal = await initSqlJs({
                 locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
             });
 
-            // Попытка автозагрузки локального файла базы при открытии с диска/локального сервера
-            if (location.protocol === 'file:' || location.hostname === 'localhost') {
-                try {
-                    const resp = await fetch('archive.db');
-                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    const buf = await resp.arrayBuffer();
-                    db = new SQLGlobal.Database(new Uint8Array(buf));
-                    statusEl.innerText = "База подключена (локальный файл archive.db)";
-                    renderTable();
-                    return;
-                } catch (e) {
-                    statusEl.innerText = "Выберите файл базы (.db) сверху";
-                    return;
-                }
+            // Пытаемся автоматически загрузить базу данных из репозитория
+            statusEl.innerText = "Загрузка базы из репозитория...";
+            try {
+                const resp = await fetch('archive.db');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status} - ${resp.statusText}`);
+                const buf = await resp.arrayBuffer();
+                db = new SQLGlobal.Database(new Uint8Aray(buf));
+                const dbSize = buf.byteLength / (1024 * 1024);
+                statusEl.innerText = `База подключена из репозитория (${dbSize.toFixed(2)} MB).`;
+                renderTable();
+            } catch (e) {
+                console.error("Ошибка автозагрузки базы:", e);
+                statusEl.innerText = "Не удалось загрузить базу. Выберите файл .db вручную.";
             }
-
-            // Для GitHub Pages и любого другого хоста просим пользователя вручную выбрать файл
-            statusEl.innerText = "Выберите файл базы (.db) сверху";
         } catch (err) {
+            console.error("Ошибка инициализации sql.js:", err);
             statusEl.innerText = "Ошибка инициализации sql.js: " + err;
         }
     }
 
     function renderTable() {
-        const res = db.exec("SELECT category, author, title, id, file_name FROM articles");
-        const rows = res[0] ? res[0].values : [];
+        if (dataTable) {
+            dataTable.destroy();
+            dataTable = null;
+        }
+        document.getElementById('tableBody').innerHTML = "";
+
         const tableBody = document.getElementById('tableBody');
-        
-        rows.forEach(row => {
+        const stmt = db.prepare("SELECT category, author, title, id, file_name FROM articles");
+
+        while (stmt.step()) {
+            const row = stmt.get(); // [category, author, title, id, file_name]
             const savedStatus = parseInt(localStorage.getItem('status_' + row[4]) || '0', 10);
-            
+
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td data-order="${savedStatus}">
@@ -133,13 +137,14 @@
                 <td class="clickable-row">${row[1]}</td>
                 <td class="clickable-row">${row[2]}</td>
             `;
-            
+
             tr.querySelectorAll('.clickable-row').forEach(td => {
                 td.onclick = () => openArticle(row[3], row[0]);
             });
-            
+
             tableBody.appendChild(tr);
-        });
+        }
+        stmt.free();
 
         dataTable = $('#articlesTable').DataTable({
             language: { url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ru.json' },
@@ -176,14 +181,8 @@
             const buf = await file.arrayBuffer();
             db = new SQLGlobal.Database(new Uint8Array(buf));
 
-            // Очищаем предыдущую таблицу, если она была
-            if (dataTable) {
-                dataTable.destroy();
-                dataTable = null;
-            }
-            document.getElementById('tableBody').innerHTML = "";
-
-            statusEl.innerText = "База подключена: " + file.name;
+            const dbSize = file.size / (1024 / 1024);
+            statusEl.innerText = `База подключена: ${file.name} (${dbSize.toFixed(2)} MB)`;
             renderTable();
         } catch (e) {
             statusEl.innerText = "Ошибка загрузки файла базы: " + e;
@@ -191,14 +190,18 @@
     }
 
     function openArticle(id, category) {
-        const res = db.exec(`SELECT title, author, content FROM articles WHERE id = ${id}`);
-        const data = res[0].values[0];
-        
-        document.getElementById('mTitle').innerText = data[0];
-        document.getElementById('mAuthor').innerText = data[1];
-        document.getElementById('mCat').innerText = category;
-        document.getElementById('mContent').innerText = data[2];
-        document.getElementById('modal').style.display = "block";
+        // Используем параметризованный запрос для безопасности и лучшей практики
+        const stmt = db.prepare("SELECT title, author, content FROM articles WHERE id = :id");
+        const data = stmt.getAsObject({ ':id': id });
+        stmt.free();
+
+        if (data) {
+            document.getElementById('mTitle').innerText = data.title;
+            document.getElementById('mAuthor').innerText = data.author;
+            document.getElementById('mCat').innerText = category;
+            document.getElementById('mContent').innerText = data.content;
+            document.getElementById('modal').style.display = "block";
+        }
     }
 
     function closeModal() {
