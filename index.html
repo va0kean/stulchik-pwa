@@ -94,8 +94,7 @@
         const tableBody = document.getElementById('tableBody');
         
         rows.forEach(row => {
-            // Получаем сохраненный статус из localStorage по имени файла
-            const savedStatus = localStorage.getItem('status_' + row[4]) || 0;
+            const savedStatus = parseInt(localStorage.getItem('status_' + row[4]) || '0', 10);
             
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -109,7 +108,6 @@
                 <td class="clickable-row">${row[2]}</td>
             `;
             
-            // Клик по строке (кроме кнопки статуса) открывает статью
             tr.querySelectorAll('.clickable-row').forEach(td => {
                 td.onclick = () => openArticle(row[3], row[0]);
             });
@@ -120,11 +118,10 @@
         dataTable = $('#articlesTable').DataTable({
             language: { url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ru.json' },
             pageLength: 20,
-            order: [[0, 'desc']] // По умолчанию сначала приоритетные
+            order: [[0, 'desc']]
         });
     }
 
-    // Функция смены статуса
     function cycleStatus(btn, fileName, event) {
         event.stopPropagation(); // Чтобы не открывалось модальное окно
         let currentStatus = parseInt(localStorage.getItem('status_' + fileName) || 0);
@@ -132,13 +129,14 @@
         
         localStorage.setItem('status_' + fileName, nextStatus);
         
-        // Обновляем внешний вид кнопки
         btn.className = `status-btn status-${nextStatus}`;
         btn.innerText = statusLabels[nextStatus];
-        
-        // Обновляем данные в таблице для корректной сортировки без перезагрузки
-        const cell = dataTable.cell($(btn).closest('td'));
-        cell.data(nextStatus).draw(false);
+
+        const td = btn.closest('td');
+        td.setAttribute('data-order', nextStatus);
+
+        const row = dataTable.row($(td).closest('tr'));
+        row.invalidate('dom').draw(false);
     }
 
     function openArticle(id, category) {
