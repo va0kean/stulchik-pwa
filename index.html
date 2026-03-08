@@ -73,11 +73,15 @@
     let dataTable;
     // Названия статусов
     const statusLabels = ["Обычный", "Приоритет", "Выполнено"];
+    // URL базы для локального запуска и GitHub Pages
+    const DB_URL = (location.hostname === 'va0kean.github.io')
+        ? 'https://raw.githubusercontent.com/va0kean/stulchik-pwa/main/archive.db'
+        : 'archive.db';
 
     async function init() {
         try {
             const sqlPromise = initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` });
-            const dataPromise = fetch("archive.db").then(res => res.arrayBuffer());
+            const dataPromise = fetch(DB_URL).then(res => res.arrayBuffer());
             const [SQL, buf] = await Promise.all([sqlPromise, dataPromise]);
             db = new SQL.Database(new Uint8Array(buf));
             document.getElementById('db-status').innerText = "База подключена";
