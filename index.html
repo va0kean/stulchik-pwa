@@ -33,9 +33,17 @@
 <body>
 
 <div class="container">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 16px; flex-wrap: wrap;">
         <h2 style="margin:0;">📚 Архив Stulchik</h2>
-        <small id="db-status">Загрузка базы...</small>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+            <small id="db-status">Загрузка базы...</small>
+            <label style="font-size:12px; cursor:pointer;">
+                <input type="file" id="dbFileInput" accept=".db" style="display:none" onchange="onDbFileChange(event)">
+                <span style="padding:4px 8px; border-radius:4px; border:1px solid #ccc; background:#fafafa;">
+                    Выбрать файл базы (.db)
+                </span>
+            </label>
+        </div>
     </div>
     
     <table id="articlesTable" class="display" style="width:100%">
@@ -71,24 +79,38 @@
 <script>
     let db;
     let dataTable;
+    let SQLGlobal;
     // Названия статусов
     const statusLabels = ["Обычный", "Приоритет", "Выполнено"];
-    // URL базы для локального запуска и GitHub Pages
-    const DB_URL = (location.hostname === 'va0kean.github.io')
-        ? 'https://github.com/va0kean/stulchik-pwa/releases/download/v1.0.0/archive.db'
-        : 'archive.db';
 
     async function init() {
+        const statusEl = document.getElementById('db-status');
         try {
-            const sqlPromise = initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` });
-            const dataPromise = fetch(DB_URL).then(res => res.arrayBuffer());
-            const [SQL, buf] = await Promise.all([sqlPromise, dataPromise]);
-            db = new SQL.Database(new Uint8Array(buf));
-            document.getElementById('db-status').innerText = "База подключена";
+            // Инициализируем sql.js (загружаем WebAssembly)
+            SQLGlobal = await initSqlJs({
+                locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+            });
 
-            renderTable();
+            // Попытка автозагрузки локального файла базы при открытии с диска/локального сервера
+            if (location.protocol === 'file:' || location.hostname === 'localhost') {
+                try {
+                    const resp = await fetch('archive.db');
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    const buf = await resp.arrayBuffer();
+                    db = new SQLGlobal.Database(new Uint8Array(buf));
+                    statusEl.innerText = "База подключена (локальный файл archive.db)";
+                    renderTable();
+                    return;
+                } catch (e) {
+                    statusEl.innerText = "Выберите файл базы (.db) сверху";
+                    return;
+                }
+            }
+
+            // Для GitHub Pages и любого другого хоста просим пользователя вручную выбрать файл
+            statusEl.innerText = "Выберите файл базы (.db) сверху";
         } catch (err) {
-            document.getElementById('db-status').innerText = "Ошибка загрузки: " + err;
+            statusEl.innerText = "Ошибка инициализации sql.js: " + err;
         }
     }
 
@@ -141,6 +163,31 @@
 
         const row = dataTable.row($(td).closest('tr'));
         row.invalidate('dom').draw(false);
+    }
+
+    async function onDbFileChange(event) {
+        const file = event.target.files[0];
+        if (!file || !SQLGlobal) return;
+
+        const statusEl = document.getElementById('db-status');
+
+        try {
+            // Читаем выбранный пользователем файл базы в память
+            const buf = await file.arrayBuffer();
+            db = new SQLGlobal.Database(new Uint8Array(buf));
+
+            // Очищаем предыдущую таблицу, если она была
+            if (dataTable) {
+                dataTable.destroy();
+                dataTable = null;
+            }
+            document.getElementById('tableBody').innerHTML = "";
+
+            statusEl.innerText = "База подключена: " + file.name;
+            renderTable();
+        } catch (e) {
+            statusEl.innerText = "Ошибка загрузки файла базы: " + e;
+        }
     }
 
     function openArticle(id, category) {
